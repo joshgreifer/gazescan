@@ -144,13 +144,12 @@ void detect_and_display(cv::Mat input_frame)
 			
 			else  {
 				cv::vconcat(eyes_combined, calibration_images.back(), eyes_combined);
-				calibration_images.pop_back();
 
 				if (is_predicting) {
 
 					auto results = gaze_detector.detect(eyes_combined);
 
-					int label = 0;
+					auto label = 0;
 
 					const auto num_labels = results.size().width;
 					for (auto i = 0; i < num_labels; ++i)
@@ -167,6 +166,7 @@ void detect_and_display(cv::Mat input_frame)
 
 				}
 				if (is_recording) {
+					calibration_images.pop_back();
 
 					char img_file_name[255];
 					auto img_dir(OUTPUT_DIR + "img/" + label_name(current_category) + "/");

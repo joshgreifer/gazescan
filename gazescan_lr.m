@@ -98,11 +98,15 @@ fprintf('\nTraining with: %d training rows\n', numTrainingFiles);
 
 layers = [ 
     imageInputLayer(image_size) 
-    convolution2dLayer(5,20) 
+    convolution2dLayer(5,16)
+    batchNormalizationLayer
     reluLayer 
-    maxPooling2dLayer(2,'Stride',2) 
-%    fullyConnectedLayer(num_labels) 
-    fullyConnectedLayer(num_labels) 
+%     maxPooling2dLayer(2,'Stride',2) 
+    convolution2dLayer(3,16)
+    batchNormalizationLayer
+    reluLayer 
+%    fullyConnectedLayer(8) 
+%   fullyConnectedLayer(16)
     fullyConnectedLayer(num_labels) 
     softmaxLayer 
     classificationLayer
