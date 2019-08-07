@@ -21,10 +21,10 @@
     <ClInclude Include="cvUtils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="EyeDetector.h">
+    <ClInclude Include="GazeDetector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="GazeDetector.h">
+    <ClInclude Include="GazeROI.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

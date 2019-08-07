@@ -75,6 +75,7 @@ num_labels = 9;
 %% Train a CNN with the images
 % Create the data store
 
+PREPROCESS_FILES = 0;
 
 % CUDA fix
 try
@@ -82,9 +83,41 @@ try
     catch ME
 end
 
-image_size = [32 32 1];
-imds = imageDatastore([this_m_file_directory  'output/img'], 'IncludeSubfolders', 1, 'LabelSource', 'foldernames' );
-% imds.Labels = categorical(cast(Labels,'uint8'));
+image_size = [48 96 1];
+
+% imds = imageDatastore([this_m_file_directory  'output/img'], 'IncludeSubfolders', 1,'LabelSource', 'foldernames', ...
+% 'ReadFcn', @CustomImgReaderConv2WithCalibration ...
+% );
+
+imds = imageDatastore([this_m_file_directory  'output/img'], 'IncludeSubfolders', 1,'LabelSource', 'foldernames');
+
+
+% 'ReadFcn', @CustomImgReaderAbsDiffWithCalibration ...
+
+% Running net using image datastore with CustomReader was
+% too slow, so do it in a batch here
+if PREPROCESS_FILES == 1
+    [~, ~] = mkdir([this_m_file_directory  'preprocessed/img']);
+    num_files = size(imds.Files);
+    fprintf('Preprocessing file, patience...');
+    for i=1:num_files
+        src_file_path = imds.Files{i};
+         dest_file_path = strrep(src_file_path, 'output', 'preprocessed');
+        if exist(dest_file_path, 'file') ~= 2
+             k = strfind(dest_file_path, 'Img');
+            dest_dir = dest_file_path(1:k-1);
+            [~, ~] = mkdir(dest_dir);
+            img = CustomImgReaderAbsDiffWithCalibration(src_file_path);
+            imwrite(img, dest_file_path);
+        end
+        % s
+    end
+    fprintf('Preprocessing done.  Files are in %s ', [this_m_file_directory  'preprocessed/img']);
+end
+% imds = imageDatastore([this_m_file_directory  'preprocessed/img'], 'IncludeSubfolders', 1, 'LabelSource', 'foldernames');
+% 'ReadFcn', @CustomImgReaderAbsDiffWithCalibration ...
+
+
 
 label_counts = countEachLabel(imds);
 
@@ -98,21 +131,36 @@ fprintf('\nTraining with: %d training rows\n', numTrainingFiles);
 
 layers = [ 
     imageInputLayer(image_size) 
-    convolution2dLayer(5,16)
-    batchNormalizationLayer
-    reluLayer 
-%     maxPooling2dLayer(2,'Stride',2) 
+    
     convolution2dLayer(3,16)
     batchNormalizationLayer
     reluLayer 
-%    fullyConnectedLayer(8) 
-%   fullyConnectedLayer(16)
+    
+    averagePooling2dLayer(2,'Stride',2)
+    
+    convolution2dLayer(3,8)
+    batchNormalizationLayer
+    reluLayer 
+    
+    averagePooling2dLayer(2,'Stride',2) 
+    
+    
+    convolution2dLayer(3,32)
+    batchNormalizationLayer
+    reluLayer
+    
+    convolution2dLayer(3,32)
+    batchNormalizationLayer
+    reluLayer
+    
+    fullyConnectedLayer(32) 
+    fullyConnectedLayer(32) 
     fullyConnectedLayer(num_labels) 
     softmaxLayer 
     classificationLayer
     ];
 % options = trainingOptions('sgdm', 'MaxEpochs',100,'InitialLearnRate',1e-4, 'Verbose',false, 'Plots','training-progress');
-options = trainingOptions('sgdm', 'MaxEpochs',200,'InitialLearnRate',1e-4, 'Verbose',false, 'Plots','training-progress');
+options = trainingOptions('sgdm', 'MaxEpochs',500,'InitialLearnRate',1e-4, 'Verbose',false, 'Plots','training-progress');
 
 %% Start the training
 net = trainNetwork(imdsTrain,layers,options);

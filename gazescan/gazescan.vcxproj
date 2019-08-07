@@ -157,7 +157,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="cvUtils.h" />
-    <ClInclude Include="EyeDetector.h" />
+    <ClInclude Include="GazeROI.h" />
     <ClInclude Include="GazeDetector.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>

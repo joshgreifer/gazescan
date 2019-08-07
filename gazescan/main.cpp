@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <boost/filesystem.hpp>
 
-#include "Eyedetector.h"
+#include "GazeROI.h"
 #include "cvUtils.h"
 #include "GazeDetector.h"
 
@@ -31,7 +31,7 @@ const string MAIN_WINDOW_NAME = "GazeScan";
 
 
 
-EyeDetector eye_detector;
+GazeROI eye_detector;
 
 GazeDetector gaze_detector(RESOURCE_DIR + "gazescan.onnx");
 
@@ -50,8 +50,11 @@ vector<int> labels_vec;	// each element is a number (1-9) representing the quadr
 int cursor_pos_x;
 int cursor_pos_y;
 
-bool is_recording;
+bool is_acquiring_training_data;
 bool is_predicting;
+bool use_face_image = true;
+bool add_calibration_images_to_training_images = false;
+
 unsigned int num_images_saved;
 
 
@@ -63,7 +66,10 @@ const int NUM_CATEGORIES = GRID_NUM * GRID_NUM;
 int SCREEN_W;
 int SCREEN_H;
 
-const int RECORDING_BATCH_SIZE = 100; // 
+const int RECORDING_BATCH_SIZE = 50;
+
+// only start recording after INITIAL_IMAGES_TO_IGNORE images obtained, to give user time to move gaze
+const int INITIAL_IMAGES_TO_IGNORE = 50;
 
 enum Category
 {
@@ -81,6 +87,7 @@ enum Category
 
 int current_category = centre;
 
+// These are up to RECORDING_BATCH_SIZE images of eyes looking at the centre of the screen
 std::vector<cv::Mat>calibration_images;
 
 auto coord2label(const int x, const int y)
@@ -107,20 +114,27 @@ cv::Rect label2rect(int label)
 void detect_and_display(cv::Mat input_frame)
 {
 	static int next_category = NUM_CATEGORIES;
+	static bool calibrating;
+	static int num_times_gazed_at_current_category = -INITIAL_IMAGES_TO_IGNORE;
 
 	cv::Mat output_frame(SCREEN_H,SCREEN_W,CV_8UC3);
 
 	output_frame.setTo(cv::Scalar(255, 255, 255));
-	cv::Rect face_rect;
-	std::vector<cv::Rect> eye_rects;
-
-	if (eye_detector.detect(input_frame, face_rect, eye_rects)) {
-		cv::Mat eyes_combined;
 
 	
-		if (eye_detector.create_eyes_image(face_rect, eye_rects, eyes_combined)) {
-	// show region we're supposed to be looking at
-			static bool calibrating;
+	cv::Mat roi;
+	// set the face rect from detector if we're gazing at centre
+	if (current_category == centre && num_times_gazed_at_current_category < 0)
+		eye_detector.find_roi(input_frame,  roi, use_face_image);
+	else
+		eye_detector.get_last_roi(input_frame, roi);
+
+	if (roi.size().width) {
+
+		gaze_detector.accumulate_image_for_average(roi);
+
+		if (add_calibration_images_to_training_images) {
+			
 			if (calibration_images.empty()) {
 				cout << "Calibration start\n";
 				calibrating = true;
@@ -133,72 +147,97 @@ void detect_and_display(cv::Mat input_frame)
 				calibrating = false;
 				current_category = next_category;
 				cout << "Category set to " << current_category << "\n";
+			}			
+		} else {
+			if (++num_times_gazed_at_current_category >= RECORDING_BATCH_SIZE)
+			{
+				num_times_gazed_at_current_category = -INITIAL_IMAGES_TO_IGNORE;
+				if (++current_category >= NUM_CATEGORIES)
+					current_category = 0;
 			}
-							
-			
-			auto focus_rect = label2rect(current_category);
-			rectangle(output_frame, focus_rect, cv::Scalar(0, 0, calibrating ? 128 : 255), 3);
+		}
+	// show region we're supposed to be looking at
 
-			if (calibrating)
-					calibration_images.push_back(eyes_combined);
-			
-			else  {
-				cv::vconcat(eyes_combined, calibration_images.back(), eyes_combined);
+		const auto focus_rect = label2rect(current_category);
+		rectangle(output_frame, focus_rect, cv::Scalar(num_times_gazed_at_current_category < 0 ? 255 : 0, 0, calibrating ? 128 : 255), 3);
 
-				if (is_predicting) {
+		if (calibrating)
+				calibration_images.push_back(roi);
+		
+		else  {
+			if (add_calibration_images_to_training_images) {
+				cv::vconcat(roi, calibration_images.back(), roi);
+				calibration_images.pop_back();
+			}
+			if (is_predicting) {
 
-					auto results = gaze_detector.detect(eyes_combined);
+				auto results = gaze_detector.detect(roi);
 
-					auto label = 0;
+				auto label = 0;
 
-					const auto num_labels = results.size().width;
-					for (auto i = 0; i < num_labels; ++i)
-					{
-						const auto conf = results.at<float>(i);
-						auto label = num_labels - i - 1;
-						auto predicted_rect = label2rect(label);
-						rectangle(output_frame, predicted_rect, cv::Scalar(255-255*conf, 255, 255), cv::FILLED);
-						char buf[100];
-						sprintf_s(buf, sizeof(buf), "%2.2f", conf * 100);
-						cv::putText(output_frame, buf,
-							{ predicted_rect.x + predicted_rect.width /2, predicted_rect.y + predicted_rect.height / 2 }, cv::FONT_HERSHEY_SIMPLEX, 0.50, cv::Scalar(0, 0, 0));
-					}
-
+				const auto num_labels = results.size().width;
+				for (auto i = 0; i < num_labels; ++i)
+				{
+					const auto conf = results.at<float>(i);
+					auto label = num_labels - i - 1;
+					const auto predicted_rect = label2rect(label);
+					rectangle(output_frame, predicted_rect, cv::Scalar(255-255*conf, 255, 255), cv::FILLED);
+					char buf[100];
+					sprintf_s(buf, sizeof(buf), "%2.2f", conf * 100);
+					cv::putText(output_frame, buf,
+						{ predicted_rect.x + predicted_rect.width /2, predicted_rect.y + predicted_rect.height / 2 }, cv::FONT_HERSHEY_SIMPLEX, 0.50, cv::Scalar(0, 0, 0));
 				}
-				if (is_recording) {
-					calibration_images.pop_back();
 
+			}
+			if (is_acquiring_training_data) {
+				// only start recording after INITIAL_IMAGES_TO_IGNORE images obtained, to give user time to move gaze
+				if (num_times_gazed_at_current_category >= 0) {
 					char img_file_name[255];
 					auto img_dir(OUTPUT_DIR + "img/" + label_name(current_category) + "/");
 					boost::filesystem::create_directories(img_dir);
 					sprintf_s(img_file_name, sizeof(img_file_name), "Img%6.6u.png", ++num_images_saved);
 
-					cv::imwrite(img_dir + img_file_name, eyes_combined);
+					cv::resize(roi, roi, GazeDetector::ImageSize());
+					cv::imwrite(img_dir + img_file_name, roi);
 					cv::putText(output_frame, img_file_name,
-						{ 30, SCREEN_H - 30 }, cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 0));
-					
+						{ focus_rect.x + 30, focus_rect.y  + 30 }, cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(0, 0, 0));
+						
 				}
-			
+				
 			}
-			cvtColor(eyes_combined, eyes_combined, cv::COLOR_GRAY2BGR);
-			// Show region cursor is in
-			// rectangle(output_frame, label2rect(coord2label(cursor_pos_x, cursor_pos_y)), cv::Scalar(0, 0, 255), 1);
-
-			// display eyes at cursor pos
-			try {
-				cv::Mat eyesOverlayROI = output_frame({ focus_rect.x + (focus_rect.width - 2 * EyeDetector::EYE_RECT_SIZE)/2,
-					focus_rect.y + (focus_rect.height - 2 * EyeDetector::EYE_RECT_SIZE)/2, 2 * EyeDetector::EYE_RECT_SIZE, 2 * EyeDetector::EYE_RECT_SIZE });
-				eyes_combined.copyTo(eyesOverlayROI);
-	
-				//cv::Mat inputFrameROI = output_frame({  (SCREEN_W - 640)/2, (SCREEN_H - 480)/2, 640, 480 });
-				//input_frame.copyTo(inputFrameROI);
-
-
-			} catch (...) {}
+		
 		}
+		cvtColor(roi, roi, cv::COLOR_GRAY2BGR);
+		// Show region cursor is in
+		// rectangle(output_frame, label2rect(coord2label(cursor_pos_x, cursor_pos_y)), cv::Scalar(0, 0, 255), 1);
+
+		// display roi at cursor pos
+		try {
+
+			//roi.copyTo(output_frame(
+			//	{ focus_rect.x + (focus_rect.width - roi.size().width)/2,
+			//	focus_rect.y + (focus_rect.height - roi.size().height)/2, 
+			//		roi.size().width, 
+			//		roi.size().height 
+			//	}));
+			cv::Mat test = gaze_detector.average_img();
+			cvtColor(test, test, cv::COLOR_GRAY2BGR);
+
+			test.copyTo(output_frame(
+				{ focus_rect.x + (focus_rect.width - roi.size().width)/2,
+				focus_rect.y + (focus_rect.height - roi.size().height)/2, 
+					roi.size().width, 
+					roi.size().height 
+				}));
 
 
+
+
+		} catch (...) {}
 	}
+
+
+	
 
 
 	imshow(MAIN_WINDOW_NAME, output_frame);
@@ -228,63 +267,82 @@ bool file_exists(const char *filename)
 	struct stat buffer;
 	return stat(filename, &buffer) == 0;
 }
+
+// run prediction on file or set of files
+int predict(const char *file_or_directory_path)
+{
+	const boost::filesystem::path p(file_or_directory_path);
+	if (exists(p)) {
+		if (is_regular_file(p)) {
+			const auto path = p.string();
+			auto eyes_combined = cv::imread(path, cv::IMREAD_GRAYSCALE);
+			if (eyes_combined.empty())
+				return 1;
+			float confidence;
+			const auto result = gaze_detector.predict(eyes_combined, confidence);
+			cout << path << '\t' << result << '\t' << confidence << '\n';
+
+
+		} else if (is_directory(p)) {
+
+			for (auto& x : boost::filesystem::directory_iterator(p)) {
+				auto path = x.path().string();
+				auto eyes_combined = cv::imread(path, cv::IMREAD_GRAYSCALE);
+				if (eyes_combined.empty())
+					continue;
+			float confidence;
+			const auto result = gaze_detector.predict(eyes_combined, confidence);
+			cout << path << '\t' << result << '\t' << confidence << '\n';
+
+			}
+		} else
+			cout << p << " exists, but is not a regular file or directory\n";
+	} else {
+		cout << p << " is not a filename or a directory\n";
+		return 1;
+	}
+
+	return 0;
+}
+
+unsigned int get_training_set_size()
+{
+	unsigned int training_set_size = 0;
+	for (int label = 0; label < NUM_CATEGORIES; ++label)
+	{
+		boost::filesystem::path p(OUTPUT_DIR + "img/" + label_name(label));
+		if (exists(p))
+			for (auto& x : boost::filesystem::directory_iterator(p)) {
+					auto path = x.path().string();
+					// ReSharper disable once CommentTypo
+					auto *number_part_of_filename = path.c_str()+path.length()-10; // last 10 chars are 'DDDDDD.png' , where D is a digit
+					// parse out the number 
+					char *end_ptr;
+					const auto img_file_num = static_cast<unsigned>(strtol(number_part_of_filename, &end_ptr, 10));
+					if (training_set_size < img_file_num)
+						training_set_size = img_file_num;
+
+			}
+		
+	}
+	return training_set_size;
+	
+}
+
 int main(int argc, char** argv)
 {
+	GazeDetector::unit_test();
 
 	try {
 		// If filename passed, just run predictor on image file
 		if (argc > 1) {
-			boost::filesystem::path p(argv[1]);
-			if (exists(p)) {
-				if (is_regular_file(p)) {
-					auto path = p.string();
-					auto eyes_combined = cv::imread(path, cv::IMREAD_GRAYSCALE);
-					if (eyes_combined.empty())
-						return 1;
-					float confidence;
-					auto result = gaze_detector.predict(eyes_combined, confidence);
-					cout << path << '\t' << result << '\t' << confidence << '\n';
-
-
-				} else if (is_directory(p)) {
-
-					for (auto& x : boost::filesystem::directory_iterator(p)) {
-						auto path = x.path().string();
-						auto eyes_combined = cv::imread(path, cv::IMREAD_GRAYSCALE);
-						if (eyes_combined.empty())
-							continue;
-					float confidence;
-					auto result = gaze_detector.predict(eyes_combined, confidence);
-					cout << path << '\t' << result << '\t' << confidence << '\n';
-
-					}
-				} else
-					cout << p << " exists, but is not a regular file or directory\n";
-			} else {
-				cout << p << " is not a filename or a directory\n";
-				return 1;
-			}
-
-			return 0;
+			return predict(argv[1]);
 		}
 
 		boost::filesystem::create_directories(OUTPUT_DIR);
-		
-		for (int label = 0; label < NUM_CATEGORIES; ++label)
-		{
-			boost::filesystem::path p(OUTPUT_DIR + "img/" + label_name(label));
-			for (auto& x : boost::filesystem::directory_iterator(p)) {
-					auto path = x.path().string();
-					const char *number_part_of_filename = path.c_str()+path.length()-10;
-						// parse out the number 
-						auto img_file_num = static_cast<unsigned>(atol(number_part_of_filename));
-						if (num_images_saved < img_file_num)
-							num_images_saved = img_file_num;
 
-			}
-			
-		}
-
+		num_images_saved = get_training_set_size();
+	
 		setup_and_display_main_window();
 
 		cv::VideoCapture vid_cap;
@@ -300,7 +358,7 @@ int main(int argc, char** argv)
 			pressed_key = cv::waitKey(1);
 			switch (pressed_key) {
 			case 32: // space bar
-				is_recording = !is_recording;
+				is_acquiring_training_data = !is_acquiring_training_data;
 				break;
 			case 13:
 				is_predicting = !is_predicting;
@@ -313,6 +371,9 @@ int main(int argc, char** argv)
 
 	} catch (std::exception &ex) {
 		std::cerr << "main: " << ex.what();
+	} catch (...) {
+		std::cerr << "main: Unknown error";		
 	}
 
 }
+
