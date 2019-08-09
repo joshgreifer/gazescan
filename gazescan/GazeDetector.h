@@ -28,13 +28,12 @@ public:
 		return TrainedNet;
 	}
 
-	explicit GazeDetector(const std::string& onnx_filename)
+	explicit GazeDetector(const std::string& onnx_filename) : TrainedNet(cv::dnn::readNetFromONNX(onnx_filename))
 	{
-		TrainedNet = cv::dnn::readNetFromONNX(onnx_filename);
-		std::cout <<"[\n";
-		for (auto& layer_name : TrainedNet.getLayerNames())
-			std::cout << '\t' << layer_name << '\n';
-		std::cout <<"]\n";
+		//std::cout <<"[\n";
+		//for (auto& layer_name : TrainedNet.getLayerNames())
+		//	std::cout << '\t' << layer_name << '\n';
+		//std::cout <<"]\n";
 
 	}
 
@@ -59,20 +58,17 @@ public:
 		return num_labels - label - 1;
 	}
 
-	cv::Mat average() const
+	void average(cv::Mat& average_image ) const
 	{
-		cv::Mat average_image;
 		if (num_images_averaged_ > 1)
 			average_image = accumulated_sum_image_ / static_cast<double>(num_images_averaged_);
 
-		return average_image;
 	}
-	cv::Mat average_img() const
+	void  average_img(cv::Mat& average_image) const
 	{
-		cv::Mat average_image = accumulated_sum_image_ / static_cast<double>(num_images_averaged_);
+		average_image = accumulated_sum_image_ / static_cast<double>(num_images_averaged_);
 		average_image.convertTo(average_image, CV_8UC1, 256.0);
 
-		return average_image;
 	}
 
 	void accumulate_image_for_average(cv::Mat& new_image)
@@ -91,9 +87,12 @@ public:
 	{
 
 		cv::resize(detection_image, detection_image, ImageSize());
-		detection_image.convertTo(detection_image, CV_64F, 1/256.0);
-		detection_image = detection_image - average();
-		const auto blob = cv::dnn::blobFromImage(detection_image);
+//		detection_image.convertTo(detection_image, CV_64F, 1/255.0);
+//		cv::Mat average_image; average(average_image);
+//		detection_image = detection_image - average_image;
+//		cv::normalize(detection_image, detection_image, -1.0, 1.0, cv::NORM_MINMAX, CV_32F);
+//		detection_image.convertTo(detection_image, CV_32F);
+		const auto blob = cv::dnn::blobFromImage(detection_image,1.0, ImageSize(), 0.0);
 //		std::cerr << "detection_image: "  << sel::opencv::utils::GetMatType(detection_image) << std::endl;
 		TrainedNet.setInput(blob);
 
@@ -117,7 +116,6 @@ public:
 		std::cout << "R1 + R2 = " << std::endl <<        R3           << std::endl << std::endl;
 		R3 = R1 - R2;
 		std::cout << "R1 - R2 = " << std::endl <<        R3           << std::endl << std::endl;
-		exit(0);
 
 	}
 

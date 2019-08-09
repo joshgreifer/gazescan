@@ -76,6 +76,7 @@ num_labels = 9;
 % Create the data store
 
 PREPROCESS_FILES = 0;
+RUN_GAZESCAN = 0;
 
 % CUDA fix
 try
@@ -90,7 +91,6 @@ image_size = [48 96 1];
 % );
 
 imds = imageDatastore([this_m_file_directory  'output/img'], 'IncludeSubfolders', 1,'LabelSource', 'foldernames');
-
 
 % 'ReadFcn', @CustomImgReaderAbsDiffWithCalibration ...
 
@@ -127,49 +127,71 @@ fprintf('\nTraining with: %d training rows\n', numTrainingFiles);
 
 
 
-[imdsTrain,imdsTest] = splitEachLabel(imds,numTrainingFiles * 0.7, 'randomize');
+[imdsTrain,imdsTest] = splitEachLabel(imds,0.5, 'randomize');
 
 layers = [ 
-    imageInputLayer(image_size) 
+    imageInputLayer(image_size, 'name', 'img_input', 'Normalization', 'none') 
     
     convolution2dLayer(3,16)
     batchNormalizationLayer
     reluLayer 
-    
-    averagePooling2dLayer(2,'Stride',2)
-    
-    convolution2dLayer(3,8)
-    batchNormalizationLayer
-    reluLayer 
-    
-    averagePooling2dLayer(2,'Stride',2) 
-    
-    
-    convolution2dLayer(3,32)
-    batchNormalizationLayer
-    reluLayer
-    
-    convolution2dLayer(3,32)
-    batchNormalizationLayer
-    reluLayer
-    
-    fullyConnectedLayer(32) 
-    fullyConnectedLayer(32) 
+%     
+%     averagePooling2dLayer(2,'Stride',2)
+%     
+%     convolution2dLayer(3,8)
+%     batchNormalizationLayer
+%     reluLayer 
+%     
+%     averagePooling2dLayer(2,'Stride',2) 
+%     
+%     
+%     convolution2dLayer(3,32)
+%     batchNormalizationLayer
+%     reluLayer
+%     
+%     convolution2dLayer(3,32)
+%     batchNormalizationLayer
+%     reluLayer
+%     
+%      fullyConnectedLayer(32) 
+%      fullyConnectedLayer(10) 
     fullyConnectedLayer(num_labels) 
     softmaxLayer 
     classificationLayer
     ];
+
+load 'designed_net.mat';
+
 % options = trainingOptions('sgdm', 'MaxEpochs',100,'InitialLearnRate',1e-4, 'Verbose',false, 'Plots','training-progress');
-options = trainingOptions('sgdm', 'MaxEpochs',500,'InitialLearnRate',1e-4, 'Verbose',false, 'Plots','training-progress');
+options = trainingOptions('sgdm', 'MaxEpochs',500,'InitialLearnRate',1e-4, 'Verbose',false, 'Plots','training-progress','ValidationData', imdsTest);
 
 %% Start the training
-net = trainNetwork(imdsTrain,layers,options);
+imdsTrainAugmented = augmentedImageDatastore(image_size,imdsTrain);
+
+% net = trainNetwork(imdsTrain,designed_net,options);
+net = trainNetwork(imdsTrainAugmented,layers,options);
 
 %% Validation
-YPred = classify(net,imdsTest);
+[YPred, yScores] = classify(net,imdsTest);
 YTest = imdsTest.Labels;
 
 accuracy = sum(YPred == YTest)/numel(YTest)
 
 %% Export 
-% exportONNXNetwork(net, 'gazescan.onnx');
+exportONNXNetwork(net, 'gazescan.onnx');
+
+
+results_matlab = [imdsTest.Files num2cell(yScores)];
+results_gazescan = zeros(length(imdsTest.Files), height(label_counts));
+%% Run in executable
+if RUN_GAZESCAN
+    for i=1:size(results_matlab)
+        filename = results_matlab{i,1};
+
+        cmd = [ this_m_file_directory 'x64/Release/gazescan.exe ' filename ];
+        [status, output] = system(cmd);
+        idx = strfind(output,'[');
+        r = sscanf(output(idx+1:end-2), '%f, %f, %f, %f, %f, %f, %f, %f, %f');
+        results_gazescan(i, :) = r';
+    end
+end

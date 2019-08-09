@@ -214,21 +214,23 @@ void detect_and_display(cv::Mat input_frame)
 		// display roi at cursor pos
 		try {
 
-			//roi.copyTo(output_frame(
-			//	{ focus_rect.x + (focus_rect.width - roi.size().width)/2,
-			//	focus_rect.y + (focus_rect.height - roi.size().height)/2, 
-			//		roi.size().width, 
-			//		roi.size().height 
-			//	}));
-			cv::Mat test = gaze_detector.average_img();
-			cvtColor(test, test, cv::COLOR_GRAY2BGR);
-
-			test.copyTo(output_frame(
+			roi.copyTo(output_frame(
 				{ focus_rect.x + (focus_rect.width - roi.size().width)/2,
 				focus_rect.y + (focus_rect.height - roi.size().height)/2, 
 					roi.size().width, 
 					roi.size().height 
 				}));
+			//cv::Mat test; gaze_detector.average_img(test);
+			//// std::cerr << "average: "  << sel::opencv::utils::GetMatType(test) << std::endl;
+
+			//cvtColor(test, test, cv::COLOR_GRAY2BGR);
+
+			//test.copyTo(output_frame(
+			//	{ focus_rect.x + (focus_rect.width - test.size().width)/2,
+			//	focus_rect.y + (focus_rect.height - test.size().height)/2, 
+			//		test.size().width, 
+			//		test.size().height 
+			//	}));
 
 
 
@@ -275,23 +277,26 @@ int predict(const char *file_or_directory_path)
 	if (exists(p)) {
 		if (is_regular_file(p)) {
 			const auto path = p.string();
-			auto eyes_combined = cv::imread(path, cv::IMREAD_GRAYSCALE);
-			if (eyes_combined.empty())
+			auto detection_image = cv::imread(path, cv::IMREAD_GRAYSCALE);
+			if (detection_image.empty())
 				return 1;
-			float confidence;
-			const auto result = gaze_detector.predict(eyes_combined, confidence);
-			cout << path << '\t' << result << '\t' << confidence << '\n';
+//			gaze_detector.accumulate_image_for_average(detection_image);
+//			float confidence;
+//			const auto result = gaze_detector.predict(detection_image, confidence);
+			const auto result = gaze_detector.detect(detection_image);
+			cout << path << '\t' << result << '\n';
 
 
 		} else if (is_directory(p)) {
 
 			for (auto& x : boost::filesystem::directory_iterator(p)) {
 				auto path = x.path().string();
-				auto eyes_combined = cv::imread(path, cv::IMREAD_GRAYSCALE);
-				if (eyes_combined.empty())
+				auto detection_image = cv::imread(path, cv::IMREAD_GRAYSCALE);
+				if (detection_image.empty())
 					continue;
+//			gaze_detector.accumulate_image_for_average(detection_image);
 			float confidence;
-			const auto result = gaze_detector.predict(eyes_combined, confidence);
+			const auto result = gaze_detector.predict(detection_image, confidence);
 			cout << path << '\t' << result << '\t' << confidence << '\n';
 
 			}
@@ -331,7 +336,7 @@ unsigned int get_training_set_size()
 
 int main(int argc, char** argv)
 {
-	GazeDetector::unit_test();
+//	GazeDetector::unit_test();
 
 	try {
 		// If filename passed, just run predictor on image file
