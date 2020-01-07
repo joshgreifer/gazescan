@@ -7,11 +7,19 @@
 
 #include <opencv2/dnn/dnn.hpp>
 
+namespace dnn = tiny_dnn;
+
 
 class NetImpl
 {
 private:
-	tiny_dnn::network<tiny_dnn::sequential>Net;
+
+	static const cv::Size ImageSize()
+	{
+		return { 96, 48 };
+	}
+
+	dnn::network<dnn::sequential>Net;
 
 	void Mat2Vec(cv::Mat& mat, std::vector<float>& vec, const float scale) {
 
@@ -27,7 +35,17 @@ private:
 public:
 	NetImpl()
 	{
+		auto& sz = ImageSize();
+		const auto output_sz = 9;
 
+		auto input_layer_size = dnn::shape3d(sz.width, sz.height, 1);
+		Net
+			<< dnn::input_layer(input_layer_size)
+			<< dnn::convolutional_layer(sz.width, sz.height, 3, 1, 1)
+			<< dnn::batch_normalization_layer(sz.width, sz.height, 1)
+			<< dnn::relu_layer(sz.width, sz.height, 1)
+			<< dnn::fully_connected_layer(sz.width * sz.height, output_sz)
+			<< dnn::softmax_layer(output_sz);
 	}
 
 	cv::Mat predict(cv::Mat& image) 
@@ -61,7 +79,7 @@ class GazeDetector
 
 public:
 
-	static cv::Size ImageSize()
+	static const cv::Size ImageSize()
 	{
 		return { 96, 48 };
 	}

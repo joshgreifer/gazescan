@@ -15,7 +15,7 @@ class GazeROI
 		return 1.0 / (1.0 + exp(-v));
 	}
 
-	const std::string HARR_CASCADES_DIR = "D:/opencv-4.1.0/etc/haarcascades/";
+	const std::string HARR_CASCADES_DIR = "D:/projects/gazescan/haarcascades/";
 	cv::CascadeClassifier face_cascade;
 	cv::CascadeClassifier  eyes_cascade;
 
