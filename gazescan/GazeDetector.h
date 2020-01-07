@@ -1,5 +1,46 @@
 #pragma once
+
+#pragma warning(push)
+#pragma warning(disable : 4244 4267)
+#include <tiny_dnn/tiny_dnn.h>
+#pragma warning(pop)
+
 #include <opencv2/dnn/dnn.hpp>
+
+
+class NetImpl
+{
+private:
+	tiny_dnn::network<tiny_dnn::sequential>Net;
+
+	void Mat2Vec(cv::Mat& mat, std::vector<float>& vec, const float scale) {
+
+		const auto& m = (cv::Mat_<uint8_t>&) mat;
+
+		std::transform(m.begin(), m.end(), std::back_inserter(vec),
+			[=](uint8_t c) {
+				return c * scale;
+			});
+
+	}
+
+public:
+	NetImpl()
+	{
+
+	}
+
+	cv::Mat predict(cv::Mat& image) 
+	{
+		std::vector<float> vec;
+		Mat2Vec(image, vec, 1 / 256.0f);
+		auto result_vec = Net.predict(vec);
+		std::vector<float> vv(result_vec.begin(), result_vec.end());
+		return cv::Mat(vv);
+
+	}
+
+};
 
 /*
  * Detect the gaze direction given an input image, 32 X 16 of two eyes, which was used to train a DNN
@@ -11,6 +52,8 @@ class GazeDetector
 	// See gazescan.m 
 //	Load the CNN we trained and exported in Matlab
 	cv::dnn::Net TrainedNet;
+
+	tiny_dnn::network<tiny_dnn::sequential>Net;
 
 	// Aggregated average image
 	cv::Mat accumulated_sum_image_;
@@ -37,9 +80,9 @@ public:
 
 	}
 
+
 	auto predict(cv::Mat& detection_image, float& confidence)
 	{
-
 		auto results = detect(detection_image);
 
 		int label = 0;
@@ -83,20 +126,23 @@ public:
 			accumulated_sum_image_ = accumulated_sum_image_ + im;
 	}
 
-	cv::Mat detect(cv::Mat detection_image)
+	cv::Mat detect(cv::Mat& detection_image)
 	{
 
 		cv::resize(detection_image, detection_image, ImageSize());
+
+
+
 //		detection_image.convertTo(detection_image, CV_64F, 1/255.0);
 //		cv::Mat average_image; average(average_image);
 //		detection_image = detection_image - average_image;
 //		cv::normalize(detection_image, detection_image, -1.0, 1.0, cv::NORM_MINMAX, CV_32F);
 //		detection_image.convertTo(detection_image, CV_32F);
 		const auto blob = cv::dnn::blobFromImage(detection_image,1.0, ImageSize(), 0.0);
-//		std::cerr << "detection_image: "  << sel::opencv::utils::GetMatType(detection_image) << std::endl;
+		std::cerr << "detection_image: "  << sel::opencv::utils::GetMatType(detection_image) << std::endl;
 		TrainedNet.setInput(blob);
 
-		return TrainedNet.forward("softmax");;
+		return TrainedNet.forward("softmax");
 
 	}
 	
@@ -116,7 +162,6 @@ public:
 		std::cout << "R1 + R2 = " << std::endl <<        R3           << std::endl << std::endl;
 		R3 = R1 - R2;
 		std::cout << "R1 - R2 = " << std::endl <<        R3           << std::endl << std::endl;
-
 	}
 
 };

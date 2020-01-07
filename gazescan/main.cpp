@@ -1,9 +1,9 @@
+
+
 #include <opencv2/core.hpp>
-#include "opencv2/imgproc.hpp"
+#include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/cudaobjdetect.hpp>
-#include <opencv2/dnn/dnn.hpp>
-
 
 #include <iostream>
 #include <sys/stat.h>
@@ -181,9 +181,9 @@ void detect_and_display(cv::Mat input_frame)
 					const auto conf = results.at<float>(i);
 					auto label = num_labels - i - 1;
 					const auto predicted_rect = label2rect(label);
-					rectangle(output_frame, predicted_rect, cv::Scalar(255-255*conf, 255, 255), cv::FILLED);
+					rectangle(output_frame, predicted_rect, cv::Scalar(255.0 - 255.0 * conf, 255.0, 255.0), cv::FILLED);
 					char buf[100];
-					sprintf_s(buf, sizeof(buf), "%2.2f", conf * 100);
+					sprintf_s(buf, sizeof(buf), "%2.2f", 100.0f * conf);
 					cv::putText(output_frame, buf,
 						{ predicted_rect.x + predicted_rect.width /2, predicted_rect.y + predicted_rect.height / 2 }, cv::FONT_HERSHEY_SIMPLEX, 0.50, cv::Scalar(0, 0, 0));
 				}
